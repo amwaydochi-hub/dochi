@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>旅遊結算小幫手 v0.1</title>
+    <!-- 使用 Tailwind CSS 進行基礎樣式快速佈局 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 匯出 Excel 所需函式庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- 匯出 PDF 所需函式庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        :root {
+            --base-font-size: 16px;
+        }
+        body {
+            font-size: var(--base-font-size);
+            touch-action: none; /* 禁用瀏覽器預設手勢，由 JS 接管 */
+            background-color: #f3f4f6;
+            overflow: hidden; /* 防止整個頁面捲動，內部容器捲動 */
+        }
+        #app-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            transform-origin: 0 0;
+            background-color: #fff;
+            transition: transform 0.1s ease-out;
+        }
+        .scrollable-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            touch-action: pan-y; /* 允許垂直捲動 */
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+            padding: 1.5rem;
+        }
+        .btn-primary {
+            background-color: #4f46e5;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .btn-primary:hover {
+            background-color: #4338ca;
+        }
+        .btn-danger {
+            background-color: #ef4444;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 6px;
+        }
+        .member-tag {
+            display: inline-flex;
+            align-items: center;
+            background: #e0e7ff;
+            color: #4338ca;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        /* 隱藏原生捲軸但保留功能 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <header class="bg-indigo-600 text-white p-4 shadow-lg flex justify-between items-center">
+        <h1 class="text-xl font-bold">旅遊結算助手 v0.1</h1>
+        <div class="flex items-center gap-3">
+            <span class="text-sm">縮放: <span id="zoom-level">100</span>%</span>
+            <div class="flex gap-1">
+                <button onclick="adjustFontSize(-2)" class="bg-white/20 p-1 rounded">A-</button>
+                <button onclick="adjustFontSize(2)" class="bg-white/20 p-1 rounded">A+</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="scrollable-content" id="main-content">
+        <!-- 1. 團員管理 -->
+        <section class="card">
+            <h2 class="text-lg font-semibold mb-3 border-b pb-2">1. 團員名單</h2>
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="member-input" placeholder="輸入姓名" class="border p-2 rounded flex-1">
+                <button onclick="addMember()" class="btn-primary">新增團員</button>
+            </div>
+            <div id="members-list" class="flex flex-wrap">
+                <!-- 團員標籤會出現在這 -->
+            </div>
+        </section>
+
+        <!-- 2. 花費紀錄 -->
+        <section class="card">
+            <h2 class="text-lg font-semibold mb-3 border-b pb-2">2. 新增支出</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm mb-1">支出名稱</label>
+                    <input type="text" id="expense-name" placeholder="例如：晚餐、車資" class="w-full border p-2 rounded">
+                </div>
+                <div>
+                    <label class="block text-sm mb-1">金額</label>
+                    <input type="number" id="expense-amount" placeholder="0" class="w-full border p-2 rounded">
+                </div>
+                <div>
+                    <label class="block text-sm mb-1">誰付錢的？</label>
+                    <select id="expense-payer" class="w-full border p-2 rounded"></select>
+                </div>
+                <div>
+                    <label class="block text-sm mb-1">誰要平分？(預設全選)</label>
+                    <div id="split-members" class="flex flex-wrap gap-2 mt-1">
+                        <!-- 勾選框會自動生成 -->
+                    </div>
+                </div>
+            </div>
+            <button onclick="addExpense()" class="w-full mt-4 btn-primary py-3">新增支出紀錄</button>
+        </section>
+
+        <!-- 3. 花費明細表 -->
+        <section class="card overflow-x-auto">
+            <h2 class="text-lg font-semibold mb-3 border-b pb-2">3. 支出明細表</h2>
+            <table class="w-full text-left" id="expense-table">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="p-2">項目</th>
+                        <th class="p-2">付款人</th>
+                        <th class="p-2 text-right">金額</th>
+                        <th class="p-2">參與人</th>
+                        <th class="p-2">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="expense-tbody"></tbody>
+            </table>
+        </section>
+
+        <!-- 4. 結算結果 -->
+        <section class="card bg-indigo-50 border-2 border-indigo-200" id="settlement-section">
+            <h2 class="text-lg font-semibold mb-3 border-b border-indigo-200 pb-2 text-indigo-800">4. 最終結算結果</h2>
+            <div id="settlement-results" class="space-y-2 text-indigo-900">
+                <!-- 結算邏輯結果 -->
+                請先新增團員與支出。
+            </div>
+        </section>
+
+        <!-- 5. 導出功能 -->
+        <div class="grid grid-cols-2 gap-4 mb-8">
+            <button onclick="exportExcel()" class="bg-green-600 text-white p-3 rounded-xl font-bold hover:bg-green-700 shadow">下載 EXCEL</button>
+            <button onclick="exportPDF()" class="bg-red-600 text-white p-3 rounded-xl font-bold hover:bg-red-700 shadow">下載 PDF</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 狀態管理 ---
+    let members = JSON.parse(localStorage.getItem('travel_members')) || [];
+    let expenses = JSON.parse(localStorage.getItem('travel_expenses')) || [];
+    let currentScale = 1;
+    let baseFontSize = 16;
+
+    // --- 初始化 ---
+    window.onload = () => {
+        updateMemberUI();
+        updateExpenseUI();
+        initGestures();
+    };
+
+    // --- 團員功能 ---
+    function addMember() {
+        const input = document.getElementById('member-input');
+        const name = input.value.trim();
+        if (name && !members.includes(name)) {
+            members.push(name);
+            input.value = '';
+            saveAndRefresh();
+        }
+    }
+
+    function removeMember(name) {
+        members = members.filter(m => m !== name);
+        // 同時清除該團員相關的支出（選擇性邏輯，此處保留支出但設為無效）
+        saveAndRefresh();
+    }
+
+    function updateMemberUI() {
+        const list = document.getElementById('members-list');
+        const payerSelect = document.getElementById('expense-payer');
+        const splitCheckboxes = document.getElementById('split-members');
+        
+        list.innerHTML = '';
+        payerSelect.innerHTML = '<option value="">請選擇付款人</option>';
+        splitCheckboxes.innerHTML = '';
+
+        members.forEach(m => {
+            // 標籤
+            const tag = document.createElement('span');
+            tag.className = 'member-tag';
+            tag.innerHTML = `${m} <button onclick="removeMember('${m}')" class="ml-2 text-red-500 font-bold">×</button>`;
+            list.appendChild(tag);
+
+            // 下拉選單
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            payerSelect.appendChild(opt);
+
+            // 拆帳勾選
+            const label = document.createElement('label');
+            label.className = 'flex items-center space-x-1 bg-white border px-2 py-1 rounded cursor-pointer';
+            label.innerHTML = `<input type="checkbox" checked value="${m}" class="member-split-cb"> <span>${m}</span>`;
+            splitCheckboxes.appendChild(label);
+        });
+    }
+
+    // --- 支出功能 ---
+    function addExpense() {
+        const name = document.getElementById('expense-name').value.trim();
+        const amount = parseFloat(document.getElementById('expense-amount').value);
+        const payer = document.getElementById('expense-payer').value;
+        const checkBoxes = document.querySelectorAll('.member-split-cb:checked');
+        const participants = Array.from(checkBoxes).map(cb => cb.value);
+
+        if (!name || isNaN(amount) || !payer || participants.length === 0) {
+            alert('請填寫完整資訊！');
+            return;
+        }
+
+        const newExpense = {
+            id: Date.now(),
+            name,
+            amount,
+            payer,
+            participants
+        };
+
+        expenses.push(newExpense);
+        document.getElementById('expense-name').value = '';
+        document.getElementById('expense-amount').value = '';
+        saveAndRefresh();
+    }
+
+    function removeExpense(id) {
+        expenses = expenses.filter(e => e.id !== id);
+        saveAndRefresh();
+    }
+
+    function updateExpenseUI() {
+        const tbody = document.getElementById('expense-tbody');
+        tbody.innerHTML = '';
+
+        expenses.forEach(e => {
+            const tr = document.createElement('tr');
+            tr.className = 'border-b hover:bg-gray-50';
+            tr.innerHTML = `
+                <td class="p-2">${e.name}</td>
+                <td class="p-2">${e.payer}</td>
+                <td class="p-2 text-right font-mono">$${e.amount}</td>
+                <td class="p-2 text-xs text-gray-500">${e.participants.join(', ')}</td>
+                <td class="p-2"><button onclick="removeExpense(${e.id})" class="text-red-500">刪除</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        calculateSettlement();
+    }
+
+    // --- 核心結算邏輯 ---
+    function calculateSettlement() {
+        const resultsDiv = document.getElementById('settlement-results');
+        if (members.length === 0 || expenses.length === 0) {
+            resultsDiv.innerHTML = '請先新增團員與支出紀錄。';
+            return;
+        }
+
+        const balances = {};
+        members.forEach(m => balances[m] = 0);
+
+        expenses.forEach(e => {
+            // 付款人增加債權
+            balances[e.payer] += e.amount;
+            // 參與人增加債務
+            const share = e.amount / e.participants.length;
+            e.participants.forEach(p => {
+                balances[p] -= share;
+            });
+        });
+
+        // 分成債權人與債務人
+        let creditors = [];
+        let debtors = [];
+
+        for (let m in balances) {
+            if (balances[m] > 0.01) creditors.push({ name: m, amount: balances[m] });
+            else if (balances[m] < -0.01) debtors.push({ name: m, amount: Math.abs(balances[m]) });
+        }
+
+        let html = '<ul class="list-disc pl-5 space-y-2">';
+        let transactions = [];
+
+        // 貪心演算法：債務最大的人先還給債權最大的人
+        let i = 0, j = 0;
+        const tempDebtors = JSON.parse(JSON.stringify(debtors));
+        const tempCreditors = JSON.parse(JSON.stringify(creditors));
+
+        while (i < tempDebtors.length && j < tempCreditors.length) {
+            let payAmount = Math.min(tempDebtors[i].amount, tempCreditors[j].amount);
+            transactions.push(`<b>${tempDebtors[i].name}</b> 應支付給 <b>${tempCreditors[j].name}</b> <span class="text-green-600">$${payAmount.toFixed(2)}</span>`);
+            
+            tempDebtors[i].amount -= payAmount;
+            tempCreditors[j].amount -= payAmount;
+
+            if (tempDebtors[i].amount < 0.01) i++;
+            if (tempCreditors[j].amount < 0.01) j++;
+        }
+
+        if (transactions.length === 0) {
+            html = "所有帳目已平分，無需支付。";
+        } else {
+            html = transactions.map(t => `<li>${t}</li>`).join('');
+        }
+
+        resultsDiv.innerHTML = html;
+    }
+
+    function saveAndRefresh() {
+        localStorage.setItem('travel_members', JSON.stringify(members));
+        localStorage.setItem('travel_expenses', JSON.stringify(expenses));
+        updateMemberUI();
+        updateExpenseUI();
+    }
+
+    // --- 字體與縮放控制 ---
+    function adjustFontSize(delta) {
+        baseFontSize += delta;
+        document.documentElement.style.setProperty('--base-font-size', baseFontSize + 'px');
+    }
+
+    // --- 手勢與縮放邏輯 (電腦+手機) ---
+    function initGestures() {
+        const container = document.getElementById('app-container');
+        let startDist = 0;
+        let initialScale = 1;
+        
+        // 滑鼠滾輪縮放 (Ctrl + 滾輪)
+        window.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                applyZoom(delta);
+            }
+        }, { passive: false });
+
+        // 手機雙指縮放
+        container.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                startDist = Math.hypot(
+                    e.touches[0].pageX - e.touches[1].pageX,
+                    e.touches[0].pageY - e.touches[1].pageY
+                );
+                initialScale = currentScale;
+            }
+        });
+
+        container.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const dist = Math.hypot(
+                    e.touches[0].pageX - e.touches[1].pageX,
+                    e.touches[0].pageY - e.touches[1].pageY
+                );
+                const zoom = dist / startDist;
+                currentScale = Math.min(Math.max(0.5, initialScale * zoom), 3);
+                updateZoomUI();
+            }
+        });
+    }
+
+    function applyZoom(delta) {
+        currentScale = Math.min(Math.max(0.5, currentScale + delta), 3);
+        updateZoomUI();
+    }
+
+    function updateZoomUI() {
+        const container = document.getElementById('app-container');
+        container.style.transform = `scale(${currentScale})`;
+        document.getElementById('zoom-level').textContent = Math.round(currentScale * 100);
+    }
+
+    // --- 匯出功能 ---
+    function exportExcel() {
+        const data = expenses.map(e => ({
+            '項目': e.name,
+            '付款人': e.payer,
+            '金額': e.amount,
+            '參與人': e.participants.join(',')
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "支出明細");
+        XLSX.writeFile(wb, "旅遊結算報表.xlsx");
+    }
+
+    function exportPDF() {
+        const element = document.getElementById('main-content');
+        const opt = {
+            margin: 10,
+            filename: '旅遊結算報告.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().set(opt).from(element).save();
+    }
+</script>
+
+</body>
+</html>
