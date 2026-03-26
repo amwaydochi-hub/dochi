@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>停車位置紀錄器 v0.11</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        :root {
+            --primary-color: #4285f4;
+            --danger-color: #d93025;
+            --bg-color: #f1f3f4;
+        }
+
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            font-family: sans-serif;
+            background-color: var(--bg-color);
+            overflow: hidden;
+        }
+
+        #container { display: flex; flex-direction: column; height: 100vh; }
+
+        #header {
+            padding: 15px; background: white; z-index: 1000;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center;
+        }
+
+        .btn-group { display: flex; gap: 10px; justify-content: center; }
+
+        button {
+            border: none; padding: 12px 20px; border-radius: 8px;
+            font-size: 14px; font-weight: bold; cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn-record { background-color: var(--primary-color); color: white; flex: 2; }
+        .btn-clear { background-color: var(--danger-color); color: white; flex: 1; }
+        button:active { opacity: 0.8; }
+
+        #map { flex: 1; width: 100%; }
+
+        #history-panel {
+            max-height: 35%; overflow-y: auto; background: white;
+            padding: 10px; border-top: 2px solid #ddd;
+        }
+
+        .record-card {
+            background: #fff; border: 1px solid #eee; border-radius: 8px;
+            padding: 10px; margin-bottom: 10px; position: relative;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .record-time { font-weight: bold; color: #333; display: block; margin-bottom: 5px; }
+        .record-coords { font-size: 12px; color: #666; }
+        
+        .google-link {
+            display: inline-block; margin-top: 8px; color: var(--primary-color);
+            text-decoration: none; font-size: 13px; border: 1px solid var(--primary-color);
+            padding: 4px 8px; border-radius: 4px;
+        }
+
+        .version-tag {
+            position: fixed; bottom: 5px; right: 10px;
+            font-size: 10px; color: #999; z-index: 1001; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="container">
+    <div id="header">
+        <div class="btn-group">
+            <button class="btn-record" onclick="recordLocation()">📍 紀錄目前位置</button>
+            <button class="btn-clear" onclick="clearAllRecords()">🗑️ 清除</button>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div id="history-panel">
+        <div id="history-list">
+            <p style="text-align:center; color:#999;">尚無紀錄</p>
+        </div>
+    </div>
+</div>
+
+<div class="version-tag">v0.11</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    let map;
+    let markers = [];
+    let records = JSON.parse(localStorage.getItem('parking_history') || '[]');
+
+    function initMap() {
+        // 預設台北
+        map = L.map('map', {
+            center: [25.0339, 121.5644],
+            zoom: 15,
+            zoomControl: true
+        });
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OSM'
+        }).addTo(map);
+
+        renderHistory();
+    }
+
+    function recordLocation() {
+        if (!navigator.geolocation) return alert("不支援 GPS");
+
+        navigator.geolocation.getCurrentPosition((pos) => {
+            const newRecord = {
+                id: Date.now(),
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+                time: new Date().toLocaleString()
+            };
+
+            records.unshift(newRecord); // 新的排前面
+            localStorage.setItem('parking_history', JSON.stringify(records));
+            renderHistory();
+            map.setView([newRecord.lat, newRecord.lng], 17);
+        }, () => alert("定位失敗"), { enableHighAccuracy: true });
+    }
+
+    function renderHistory() {
+        const listContainer = document.getElementById('history-list');
+        listContainer.innerHTML = '';
+        
+        // 清除舊標記
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+
+        if (records.length === 0) {
+            listContainer.innerHTML = '<p style="text-align:center; color:#999;">尚無紀錄</p>';
+            return;
+        }
+
+        records.forEach(res => {
+            // 1. 建立地圖
