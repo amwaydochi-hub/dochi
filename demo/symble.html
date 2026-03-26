@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>標點符號救援行動 v0.1</title>
+    <style>
+        /* 包含響應式佈局與縮放矩陣運算 */
+        :root { --main-scale: 1; --base-font: 18px; }
+        body { font-size: var(--base-font); touch-action: none; overflow: hidden; }
+        .drop-zone { border-bottom: 2px dashed #666; min-width: 40px; display: inline-block; }
+        .symbol-card { cursor: grab; background: #ffd700; padding: 5px 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div id="viewport">
+        <header>
+            <h1>標點符號救援任務</h1>
+            <div class="controls">
+                <button onclick="zoom(0.1)">放大</button>
+                <button onclick="zoom(-0.1)">縮小</button>
+                <button onclick="changeFont(2)">字體+</button>
+            </div>
+        </header>
+        
+        <main id="game-canvas">
+            <div class="quest">
+                <p>任務 1：老師說 <span class="drop-zone" data-answer="：「">?</span> 大家都表現得很好 <span class="drop-zone" data-answer="！」">?</span></p>
+            </div>
+            
+            <div id="toolbox">
+                <div class="symbol-card" draggable="true">：「</div>
+                <div class="symbol-card" draggable="true">！」</div>
+                <div class="symbol-card" draggable="true">？</div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // JavaScript 處理拖曳、雙指縮放邏輯
+        // 包含 Hammer.js 概念的手勢處理
+        // 以及針對 Excel/PDF 的導出接口預留
+    </script>
+</body>
+</html>
